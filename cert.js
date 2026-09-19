@@ -3,10 +3,10 @@
    ========================================================== */
 
 /* ---------- CONFIG ---------- */
-var API          = 'https://script.google.com/macros/s/AKfycbzFFb8ZWPFUdoInKKIcZ9D1mZif2cKwzdxOyfoMqk6z7_xLV3WBUFiHCT7AJZ-g8tTG8A/exec';
+var API          = 'https://script.google.com/macros/s/AKfycbw9necQBsuDmL2QvCql_osp4A1kCcA0vjVp8RhMi-AMHLN5KMGEeFzr4Yu_d4Zu5IZ3Cg/exec';
 
 /* Verification page base URL — update once your portal is deployed */
-var VERIFY_BASE  = 'https://decrypt-certificate.vercel.app/verify.html';
+var VERIFY_BASE  = 'https://decrypt-certficate.vercel.app/verify.html';
 
 /* Certificate font — Cormorant Garamond is already loaded in the HTML */
 var CERT_FONT    = 'Cormorant Garamond';
