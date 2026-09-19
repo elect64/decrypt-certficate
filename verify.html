@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>DECRYPT — Certificate Verification</title>
+<meta name="description" content="Verify the authenticity of a DECRYPT 2.0 certificate.">
+<meta name="theme-color" content="#07220C">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2307220C'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-size='50' font-weight='700' fill='white' text-anchor='middle'%3ED%3C/text%3E%3C/svg%3E">
+<style>
+/* ==========================================================
+   DECRYPT CERTIFICATE VERIFICATION — verify.html
+   Intentionally self-contained (single file, no external CSS)
+   so it works from any hosting context.
+   ========================================================== */
+:root {
+  --bg:      #07220C;
+  --surface: #0D2A14;
+  --border:  rgba(255,255,255,0.10);
+  --accent:  #9CF0B0;
+  --text:    #F5F7F3;
+  --muted:   rgba(245,247,243,0.45);
+  --red:     #E8564B;
+  --amber:   #F0B429;
+  --font-d:  'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-m:  'JetBrains Mono', ui-monospace, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-d);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Brand strip at top */
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 32px;
+}
+.brand-dot  { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.brand-name { font-size: 1rem; font-weight: 700; letter-spacing: 0.1em; }
+.brand-tag  {
+  font-family: var(--font-m); font-size: 0.62rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px;
+}
+
+/* Main card */
+.card {
+  width: 100%; max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  animation: cardIn 0.55s cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Status header — green for verified, red for invalid */
+.card-status {
+  padding: 28px 28px 22px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.status-icon {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+  flex-shrink: 0;
+}
+.status-icon.ok  { background: rgba(156,240,176,0.14); border: 2px solid rgba(156,240,176,0.4); }
+.status-icon.bad { background: rgba(232,86,75,0.12);  border: 2px solid rgba(232,86,75,0.35); }
+.status-icon.warn{ background: rgba(240,180,41,0.12); border: 2px solid rgba(240,180,41,0.35); }
+
+.status-title {
+  font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em;
+}
+.status-sub {
+  font-size: 0.86rem; color: var(--muted); max-width: 320px; line-height: 1.5;
+}
+
+/* Field list */
+.field-list { padding: 6px 0; }
+.field-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 13px 24px; border-bottom: 1px solid var(--border);
+}
+.field-row:last-child { border-bottom: none; }
+.field-key {
+  font-family: var(--font-m); font-size: 0.68rem;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  flex-shrink: 0;
+}
+.field-val { font-size: 0.9rem; text-align: right; }
+.field-val.mono { font-family: var(--font-m); font-size: 0.82rem; color: var(--accent); }
+
+/* Loading state */
+.loading {
+  padding: 56px 28px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+.spinner {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-family: var(--font-m); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Manual lookup form (shown when no ?code= in URL) */
+.lookup-form { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.lookup-form input {
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+  color: var(--text); padding: 12px 14px; border-radius: 8px;
+  font-family: var(--font-m); font-size: 0.9rem; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: border-color 0.15s;
+}
+.lookup-form input:focus { outline: none; border-color: var(--accent); }
+.lookup-form input::placeholder { color: var(--muted); text-transform: none; }
+.lookup-btn {
+  background: var(--accent); color: #07220C;
+  border: none; padding: 12px 20px; border-radius: 8px;
+  font-family: var(--font-m); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.lookup-btn:hover { opacity: 0.85; }
+
+/* Footer */
+.verify-footer {
+  margin-top: 28px;
+  font-family: var(--font-m); font-size: 0.62rem;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <span class="brand-dot"></span>
+  <span class="brand-name">DECRYPT</span>
+  <span class="brand-tag">Certificate Verification</span>
+</div>
+
+<div class="card" id="card">
+  <div class="loading" id="state-loading">
+    <div class="spinner"></div>
+    <p class="loading-text">Verifying certificate…</p>
+  </div>
+</div>
+
+<p class="verify-footer">DECRYPT 2.0 · Knowledge should not stay locked.</p>
+
+<script>
+var API = 'https://script.google.com/macros/s/AKfycbyPlBk43qqVzxcGWbJILQ-peMfxisblUfL6tn9gnx9f4SKwKyE4klkcsfGAPOtoHHBWjA/exec';
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function renderVerified(d) {
+  document.title = 'Verified — ' + d.name + ' · DECRYPT';
+  document.getElementById('card').innerHTML =
+    '<div class="card-status">' +
+      '<div class="status-icon ok">✓</div>' +
+      '<div class="status-title" style="color:#9CF0B0;">Certificate verified</div>' +
+      '<div class="status-sub">This is an authentic DECRYPT certificate. The details below match our records.</div>' +
+    '</div>' +
+    '<div class="field-list">' +
+      row('Name',      d.name,  false) +
+      row('Event',     d.event, false) +
+      row('Track',     d.track, false) +
+      row('Date',      d.date,  false) +
+      row('Certificate ID', d.code, true) +
+    '</div>';
+}
+
+function renderNotAttended(code) {
+  document.title = 'Not valid — DECRYPT';
+  document.getElementById('card').innerHTML =
+    '<div class="card-status">' +
+      '<div class="status-icon warn">!</div>' +
+      '<div class="status-title" style="color:#F0B429;">Certificate not valid</div>' +
+      '<div class="status-sub">This access code is registered in our system but the participant did not attend DECRYPT 2.0. No certificate was issued for this code.</div>' +
+    '</div>' +
+    '<div class="field-list">' +
+      row('Code checked', code, true) +
+    '</div>';
+}
+
+function renderNotFound(code) {
+  document.title = 'Not found — DECRYPT';
+  document.getElementById('card').innerHTML =
+    '<div class="card-status">' +
+      '<div class="status-icon bad">✕</div>' +
+      '<div class="status-title" style="color:#E8564B;">Certificate not found</div>' +
+      '<div class="status-sub">This code does not match any certificate in our records. If you believe this is an error, please contact the DECRYPT team.</div>' +
+    '</div>' +
+    '<div class="field-list">' +
+      row('Code checked', code || '—', !!code) +
+    '</div>';
+}
+
+function renderError() {
+  document.getElementById('card').innerHTML =
+    '<div class="card-status">' +
+      '<div class="status-icon bad">!</div>' +
+      '<div class="status-title">Verification failed</div>' +
+      '<div class="status-sub">Could not reach the verification server. Please check your connection and try again.</div>' +
+    '</div>' +
+    '<div class="lookup-form">' +
+      '<input type="text" id="manual-code" placeholder="Enter certificate code" autocapitalize="characters" spellcheck="false">' +
+      '<button class="lookup-btn" onclick="manualLookup()">Try again</button>' +
+    '</div>';
+}
+
+function renderLookupForm() {
+  document.getElementById('card').innerHTML =
+    '<div class="card-status">' +
+      '<div class="status-icon ok" style="font-size:20px;">🔍</div>' +
+      '<div class="status-title">Verify a certificate</div>' +
+      '<div class="status-sub">Enter the certificate ID from the QR code or the certificate document itself.</div>' +
+    '</div>' +
+    '<div class="lookup-form">' +
+      '<input type="text" id="manual-code" placeholder="e.g. DEC2.O-8F3KQ" autocapitalize="characters" spellcheck="false">' +
+      '<button class="lookup-btn" onclick="manualLookup()">Verify →</button>' +
+    '</div>';
+  var input = document.getElementById('manual-code');
+  if (input) {
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') manualLookup(); });
+    input.focus();
+  }
+}
+
+function manualLookup() {
+  var input = document.getElementById('manual-code');
+  var code  = input ? input.value.trim().toUpperCase() : '';
+  if (!code) return;
+  verify(code);
+}
+
+function row(key, val, mono) {
+  return '<div class="field-row">' +
+    '<span class="field-key">' + esc(key) + '</span>' +
+    '<span class="field-val' + (mono ? ' mono' : '') + '">' + esc(val) + '</span>' +
+    '</div>';
+}
+
+function verify(code) {
+  document.getElementById('card').innerHTML =
+    '<div class="loading"><div class="spinner"></div>' +
+    '<p class="loading-text">Verifying ' + esc(code) + '…</p></div>';
+
+  fetch(API + '?action=verify_certificate&code=' + encodeURIComponent(code))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.verified) {
+        renderVerified(d);
+      } else if (d.reason === 'not_attended') {
+        renderNotAttended(code);
+      } else {
+        renderNotFound(code);
+      }
+    })
+    .catch(function () { renderError(); });
+}
+
+/* Boot — read ?code= from URL */
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var code   = (params.get('code') || '').trim().toUpperCase();
+  if (code) {
+    verify(code);
+  } else {
+    renderLookupForm();
+  }
+})();
+</script>
+</body>
+</html>
