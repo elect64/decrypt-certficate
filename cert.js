@@ -3,10 +3,10 @@
    ========================================================== */
 
 /* ---------- CONFIG ---------- */
-var API          = 'https://script.google.com/macros/s/AKfycbyPlBk43qqVzxcGWbJILQ-peMfxisblUfL6tn9gnx9f4SKwKyE4klkcsfGAPOtoHHBWjA/exec';
+var API          = 'https://script.google.com/macros/s/AKfycbzFFb8ZWPFUdoInKKIcZ9D1mZif2cKwzdxOyfoMqk6z7_xLV3WBUFiHCT7AJZ-g8tTG8A/exec';
 
 /* Verification page base URL — update once your portal is deployed */
-var VERIFY_BASE  = 'https://decrypt-cert.vercel.app/verify.html';
+var VERIFY_BASE  = 'https://decrypt-certificate.vercel.app/verify.html';
 
 /* Certificate font — Cormorant Garamond is already loaded in the HTML */
 var CERT_FONT    = 'Cormorant Garamond';
@@ -55,6 +55,21 @@ function apiFetch(params) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
   }).join('&');
   return fetch(API + '?' + qs).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+
+/* POST version — used for certificate sends where the PDF base64
+   is too large for a URL parameter. Apps Script doPost receives
+   this via e.postData.contents. */
+function apiPost(payload) {
+  if (_token) payload._token = _token;
+  return fetch(API, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload)
+  }).then(function (r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   });
@@ -551,7 +566,7 @@ var SendPanel = (function () {
       buildCertificateCanvas(r)
         .then(function (cvs) {
           var pdfB64 = canvasToPdfBase64(cvs);
-          return apiFetch({
+          return apiPost({
             action:      'sendCertificateEmail',
             code:        r.code,
             name:        r.name,
