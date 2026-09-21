@@ -3,7 +3,7 @@
    ========================================================== */
 
 /* ---------- CONFIG ---------- */
-var API          = 'https://script.google.com/macros/s/AKfycbwy6FTlIEmCRI3ioxKGhB9lbAuCt4d1FqzEqvT92rDG9Qk2sVOzhx2pr3vIZG4rR6PEzw/exec';
+var API          = 'https://script.google.com/macros/s/AKfycbyHx0H6SbRvcvu7QWt5QJiLBVwl3kt2QSO0zxrBQJ0pPlbPdUNhiBRavtUylF0TiEI3aA/exec';
 
 /* Verification page base URL — update once your portal is deployed */
 var VERIFY_BASE  = 'https://decrypt-certficate.vercel.app/verify.html';
