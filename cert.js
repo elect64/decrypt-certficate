@@ -4,6 +4,8 @@
 
 /* ---------- CONFIG ---------- */
 var API          = 'https://script.google.com/macros/s/AKfycbxhx5PmRQ3bJdKLyW0Bia-t5b0dNcy---geQJtGNrwOh6l8BylVdVotY9gAaQL8AzydLQ/exec';
+var API_TIMEOUT_MS = 90000;
+var QR_TIMEOUT_MS  = 15000;
 
 /* Verification page base URL — update once your portal is deployed */
 var VERIFY_BASE  = 'https://decrypt-certficate.vercel.app/verify.html';
@@ -54,24 +56,49 @@ function apiFetch(params) {
   var qs = Object.keys(params).map(function (k) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
   }).join('&');
-  return fetch(API + '?' + qs).then(function (r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  });
+  return fetchJson(API + '?' + qs, {}, API_TIMEOUT_MS);
 }
 
 /* POST version — used for certificate sends where the PDF base64
-   is too large for a URL parameter. Apps Script doPost receives
-   this via e.postData.contents. */
+   is too large for a URL parameter. text/plain avoids a CORS preflight;
+   Apps Script reads the JSON body from e.postData.contents. */
 function apiPost(payload) {
   if (_token) payload._token = _token;
-  return fetch(API, {
+  return fetchJson(API, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body:    JSON.stringify(payload)
-  }).then(function (r) {
+  }, API_TIMEOUT_MS);
+}
+
+function fetchJson(url, options, timeoutMs) {
+  var controller = typeof AbortController === 'function' ? new AbortController() : null;
+  var requestOptions = Object.assign({}, options);
+  if (controller) requestOptions.signal = controller.signal;
+
+  var timedOut = false;
+  var timer;
+  var request = fetch(url, requestOptions).then(function (r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
+  });
+  var timeout = new Promise(function (_, reject) {
+    timer = setTimeout(function () {
+      timedOut = true;
+      if (controller) controller.abort();
+      reject(new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + ' seconds.'));
+    }, timeoutMs);
+  });
+
+  return Promise.race([request, timeout]).then(function (result) {
+    clearTimeout(timer);
+    return result;
+  }, function (error) {
+    clearTimeout(timer);
+    if (timedOut) {
+      throw new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + ' seconds.');
+    }
+    throw error;
   });
 }
 function el(id) { return document.getElementById(id); }
@@ -430,22 +457,38 @@ function buildCertificateCanvas(participant) {
     ctx.fillText(participant.name || '', nameX, nameY);
 
     /* QR code */
-    var qrCode   = encodeURIComponent(participant.code);
+    var verifyUrl = VERIFY_BASE + '?code=' + encodeURIComponent(participant.code || '');
     var qrUrl    = 'https://quickchart.io/qr?text=' +
-                   encodeURIComponent(VERIFY_BASE + '?code=' + participant.code) +
+                   encodeURIComponent(verifyUrl) +
                    '&size=300&margin=1&dark=07220C&light=FFFFFF';
     var qrImg    = new Image();
+    var qrTimer  = setTimeout(function () {
+      finishQr(new Error('QR code service did not respond in time.'));
+    }, QR_TIMEOUT_MS);
+    var qrFinished = false;
+    function finishQr(error) {
+      if (qrFinished) return;
+      qrFinished = true;
+      clearTimeout(qrTimer);
+      qrImg.onload = null;
+      qrImg.onerror = null;
+      if (error) reject(error);
+      else resolve(cvs);
+    }
     qrImg.crossOrigin = 'anonymous';
     qrImg.onload = function () {
-      var qrSize = Math.round(_style.qrSize * (cvs.width / 800));
-      var qrX    = _fields.qr.xPct * cvs.width  - qrSize / 2;
-      var qrY    = _fields.qr.yPct * cvs.height - qrSize / 2;
-      ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-      resolve(cvs);
+      try {
+        var qrSize = Math.round(_style.qrSize * (cvs.width / 800));
+        var qrX    = _fields.qr.xPct * cvs.width  - qrSize / 2;
+        var qrY    = _fields.qr.yPct * cvs.height - qrSize / 2;
+        ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+        finishQr();
+      } catch (error) {
+        finishQr(new Error('Could not add the QR code to the certificate.'));
+      }
     };
     qrImg.onerror = function () {
-      /* QR failed to load — still resolve with the name-only cert */
-      resolve(cvs);
+      finishQr(new Error('Could not generate the QR code. Check the connection and retry.'));
     };
     qrImg.src = qrUrl;
   });
@@ -492,7 +535,13 @@ var Preview = (function () {
    STEP 4 — SEND PANEL
    ========================================================== */
 var SendPanel = (function () {
+  var _initialized = false;
+
   function init() {
+    if (!_initialized) {
+      el('send-btn').addEventListener('click', confirmAndSend);
+      _initialized = true;
+    }
     loadRecipients();
   }
 
@@ -503,7 +552,9 @@ var SendPanel = (function () {
 
     apiFetch({ action: 'getCertificatesData' })
       .then(function (d) {
-        if (!d || d.ok === false) { listEl.innerHTML = '<p style="padding:18px;color:var(--text-muted);font-size:0.85rem;">Could not load recipients.</p>'; return; }
+        if (!d || d.ok === false) {
+          throw new Error(d && d.error ? d.error : 'The server returned an invalid response.');
+        }
         _recipients = (d.certificates || []).filter(function (c) { return c.status === 'Eligible'; });
 
         badge.textContent = _recipients.length + ' recipient' + (_recipients.length !== 1 ? 's' : '');
@@ -525,11 +576,15 @@ var SendPanel = (function () {
 
         el('send-btn').disabled = false;
       })
-      .catch(function () {
-        listEl.innerHTML = '<p style="padding:18px;color:var(--text-muted);font-size:0.85rem;">Could not load recipients.</p>';
+      .catch(function (error) {
+        _recipients = [];
+        badge.textContent = 'Could not load recipients';
+        badge.classList.remove('has-recipients');
+        el('send-btn').disabled = true;
+        listEl.textContent = 'Could not load recipients: ' +
+          (error && error.message ? error.message : 'Unexpected error.');
       });
 
-    el('send-btn').addEventListener('click', confirmAndSend);
   }
 
   function confirmAndSend() {
@@ -550,12 +605,12 @@ var SendPanel = (function () {
 
     var total   = _recipients.length;
     var sent    = 0;
-    var failed  = 0;
+    var failures = [];
     var subject = el('cert-subject').value.trim() || 'Your DECRYPT 2.0 Certificate';
 
     function sendNext(i) {
       if (i >= total) {
-        onComplete(sent, failed);
+        onComplete(sent, failures);
         return;
       }
       var r = _recipients[i];
@@ -566,6 +621,7 @@ var SendPanel = (function () {
       buildCertificateCanvas(r)
         .then(function (cvs) {
           var pdfB64 = canvasToPdfBase64(cvs);
+          el('progress-label').textContent = 'Sending certificate ' + (i + 1) + ' of ' + total + ' — ' + r.name + '…';
           return apiPost({
             action:      'sendCertificateEmail',
             code:        r.code,
@@ -577,11 +633,19 @@ var SendPanel = (function () {
           });
         })
         .then(function (res) {
-          if (res && res.ok) { sent++; } else { failed++; }
-          sendNext(i + 1);
+          if (!res || !res.ok) {
+            throw new Error(res && res.error ? res.error : 'The server rejected this certificate.');
+          }
+          sent++;
         })
-        .catch(function () {
-          failed++;
+        .catch(function (error) {
+          failures.push({
+            name: r.name || r.email || 'Unknown recipient',
+            error: error && error.message ? error.message : 'Unexpected error.'
+          });
+        })
+        .then(function () {
+          el('progress-bar-fill').style.width = Math.round(((i + 1) / total) * 100) + '%';
           sendNext(i + 1);
         });
     }
@@ -589,22 +653,38 @@ var SendPanel = (function () {
     sendNext(0);
   }
 
-  function onComplete(sent, failed) {
+  function onComplete(sent, failures) {
     el('progress-bar-fill').style.width = '100%';
     el('progress-label').textContent = 'Done.';
+    el('step4-back').style.display = '';
     setTimeout(function () {
       el('send-progress').style.display = 'none';
       var resultEl = el('send-result');
       resultEl.style.display = '';
-      if (failed === 0) {
+      resultEl.textContent = '';
+      if (!failures.length) {
         resultEl.className = 'send-result ok';
         resultEl.innerHTML = '<div class="send-result-title">All certificates sent ✓</div>' +
           '<div class="send-result-sub">' + sent + ' certificate' + (sent !== 1 ? 's' : '') + ' delivered. The Certificates sheet has been updated.</div>';
       } else {
         resultEl.className = 'send-result err';
-        resultEl.innerHTML = '<div class="send-result-title">' + sent + ' sent, ' + failed + ' failed</div>' +
-          '<div class="send-result-sub">The failed certificates were not sent. You can return to Step 4 to retry — only unsent (Eligible) recipients will be shown.</div>';
+        var title = document.createElement('div');
+        title.className = 'send-result-title';
+        title.textContent = sent + ' sent, ' + failures.length + ' failed';
+        var sub = document.createElement('div');
+        sub.className = 'send-result-sub';
+        sub.textContent = 'Review the errors below. The recipient list will refresh so only certificates still marked Eligible can be retried.';
+        var list = document.createElement('ul');
+        failures.forEach(function (failure) {
+          var item = document.createElement('li');
+          item.textContent = failure.name + ': ' + failure.error;
+          list.appendChild(item);
+        });
+        resultEl.appendChild(title);
+        resultEl.appendChild(sub);
+        resultEl.appendChild(list);
       }
+      loadRecipients();
     }, 600);
   }
 

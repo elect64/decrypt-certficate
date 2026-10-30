@@ -1,8 +1,9 @@
 // ===========================================================================
 // CERT.GS — DECRYPT 2.0 CERTIFICATE ENGINE
 // Add this file to your existing Apps Script project.
-// Then add the two new routes shown at the bottom to your doGet in Code.gs.
-// Nothing else in Code.gs, Admin.gs, or Portal.gs changes.
+// Wire verify_certificate into doGet and sendCertificateEmail into the
+// POST/admin action dispatcher. The send dispatcher must read action from
+// e.postData.contents because the browser sends a JSON request body.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -13,12 +14,25 @@
 // ---------------------------------------------------------------------------
 
 function handleSendCertificateEmail(e) {
-  var code     = (e.parameter.code      || '').trim().toUpperCase();
-  var name     = e.parameter.name       || '';
-  var email    = e.parameter.email      || '';
-  var subject  = e.parameter.subject    || 'Your DECRYPT 2.0 Certificate';
-  var pdfB64   = e.parameter.pdfBase64  || '';
-  var certRow  = Number(e.parameter.certRow) || 0;
+  var params = e.parameter || {};
+  if (e.postData && e.postData.contents) {
+    try {
+      var body = JSON.parse(e.postData.contents);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return jsonResponse({ ok: false, error: 'Invalid request body.' });
+      }
+      params = Object.assign({}, params, body);
+    } catch (err) {
+      return jsonResponse({ ok: false, error: 'Invalid JSON request body.' });
+    }
+  }
+
+  var code     = String(params.code || '').trim().toUpperCase();
+  var name     = String(params.name || '');
+  var email    = String(params.email || '');
+  var subject  = String(params.subject || 'Your DECRYPT 2.0 Certificate');
+  var pdfB64   = String(params.pdfBase64 || '');
+  var certRow  = Number(params.certRow) || 0;
 
   if (!email || !pdfB64 || !code) {
     return jsonResponse({ ok: false, error: 'Missing required fields.' });
@@ -31,27 +45,20 @@ function handleSendCertificateEmail(e) {
                    'DECRYPT-2.0-Certificate-' + name.replace(/[^a-zA-Z0-9 ]/g, '').trim() + '.pdf');
 
     /* Verification URL embedded in the email body */
-    var VERIFY_BASE = 'https://decrypt-portal.vercel.app/verify.html';
+    var VERIFY_BASE = 'https://decrypt-certficate.vercel.app/verify.html';
     var verifyUrl   = VERIFY_BASE + '?code=' + encodeURIComponent(code);
 
     /* Premium certificate delivery email */
     var htmlBody = buildCertificateEmail(name, code, verifyUrl);
 
-    MailApp.sendEmail({
-      to:          email,
-      subject:     subject,
+    var plainBody = 'Hello ' + (name.trim().split(' ')[0] || 'there') +
+      ', your DECRYPT 2.0 certificate is attached as a PDF.';
+    MailApp.sendEmail(email, subject, plainBody, {
       htmlBody:    htmlBody,
       attachments: [pdfBlob]
     });
 
-    /* Mark row as Sent in Certificates sheet */
-    if (certRow > 1) {
-      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Certificates');
-      if (sheet) {
-        sheet.getRange(certRow, 6).setValue(new Date()); // Col F: Sent date
-        sheet.getRange(certRow, 8).setValue('Sent');     // Col H: Status
-      }
-    }
+    updateCertificateRecord(code, certRow, verifyUrl);
 
     return jsonResponse({ ok: true });
 
@@ -59,6 +66,86 @@ function handleSendCertificateEmail(e) {
     console.error('Certificate send error: ' + err.toString());
     return jsonResponse({ ok: false, error: err.toString() });
   }
+}
+
+function findCertificateColumn(headers, names, fallbackIndex) {
+  var normalizedNames = names.map(function (name) {
+    return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  });
+  for (var i = 0; i < headers.length; i++) {
+    var header = String(headers[i] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalizedNames.indexOf(header) !== -1) return i;
+  }
+  return fallbackIndex;
+}
+
+function updateCertificateRecord(code, certRow, verifyUrl) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Certificates');
+  if (!sheet) throw new Error('Certificates sheet was not found.');
+
+  var values = sheet.getDataRange().getValues();
+  if (!values.length) throw new Error('Certificates sheet has no header row.');
+
+  var headers = values[0];
+  var codeColumn = findCertificateColumn(
+    headers, ['code', 'certificate code', 'certificate id', 'access code'], 0
+  );
+  var rowNumber = Number(certRow);
+  if (rowNumber < 2 || rowNumber > values.length ||
+      String(values[rowNumber - 1][codeColumn] || '').trim().toUpperCase() !== code) {
+    rowNumber = 0;
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][codeColumn] || '').trim().toUpperCase() === code) {
+        rowNumber = i + 1;
+        break;
+      }
+    }
+  }
+  if (!rowNumber) throw new Error('Certificate row was not found for code ' + code + '.');
+
+  var generatedColumn = findCertificateColumn(headers, ['generated', 'generated date'], 4);
+  var sentColumn = findCertificateColumn(headers, ['sent', 'sent date'], 5);
+  var urlColumn = findCertificateColumn(
+    headers, ['url', 'certificate url', 'certificate link', 'verification url'], 6
+  );
+  var statusColumn = findCertificateColumn(headers, ['status'], 7);
+  var now = new Date();
+
+  sheet.getRange(rowNumber, generatedColumn + 1).setValue(now);
+  sheet.getRange(rowNumber, sentColumn + 1).setValue(now);
+  sheet.getRange(rowNumber, urlColumn + 1).setValue(verifyUrl);
+  sheet.getRange(rowNumber, statusColumn + 1).setValue('Sent');
+}
+
+function backfillCertificateVerificationUrls() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Certificates');
+  if (!sheet) throw new Error('Certificates sheet was not found.');
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return 0;
+
+  var headers = values[0];
+  var codeColumn = findCertificateColumn(
+    headers, ['code', 'certificate code', 'certificate id', 'access code'], 0
+  );
+  var urlColumn = findCertificateColumn(
+    headers, ['url', 'certificate url', 'certificate link', 'verification url'], 6
+  );
+  var statusColumn = findCertificateColumn(headers, ['status'], 7);
+  var updated = 0;
+
+  for (var i = 1; i < values.length; i++) {
+    var code = String(values[i][codeColumn] || '').trim().toUpperCase();
+    var status = String(values[i][statusColumn] || '').trim().toUpperCase();
+    if (code && status === 'SENT' && !String(values[i][urlColumn] || '').trim()) {
+      sheet.getRange(i + 1, urlColumn + 1).setValue(
+        'https://decrypt-certficate.vercel.app/verify.html?code=' + encodeURIComponent(code)
+      );
+      updated++;
+    }
+  }
+  Logger.log('Backfilled verification URLs for ' + updated + ' sent certificate(s).');
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,23 +292,76 @@ function handleVerifyCertificate(e) {
   if (!code) return jsonResponse({ verified: false, error: 'No code provided.' });
 
   try {
+    var certificatesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Certificates');
+    if (certificatesSheet) {
+      var certificateData = certificatesSheet.getDataRange().getValues();
+      if (certificateData.length > 1) {
+        var certificateHeaders = certificateData[0];
+        var certificateCodeColumn = findCertificateColumn(
+          certificateHeaders, ['code', 'certificate code', 'certificate id', 'access code'], 0
+        );
+        var certificateNameColumn = findCertificateColumn(
+          certificateHeaders, ['name', 'participant name', 'full name'], 1
+        );
+        var certificateTrackColumn = findCertificateColumn(
+          certificateHeaders, ['track', 'event track'], 3
+        );
+        var certificateStatusColumn = findCertificateColumn(certificateHeaders, ['status'], 7);
+
+        for (var c = 1; c < certificateData.length; c++) {
+          var certificateRow = certificateData[c];
+          var certificateCode = String(certificateRow[certificateCodeColumn] || '').trim().toUpperCase();
+          if (certificateCode === code &&
+              String(certificateRow[certificateStatusColumn] || '').trim().toUpperCase() === 'SENT') {
+            return jsonResponse({
+              verified: true,
+              name: certificateRow[certificateNameColumn] || '',
+              track: certificateRow[certificateTrackColumn] || 'General',
+              event: 'DECRYPT 2.0',
+              date: 'October 2026',
+              code: certificateCode
+            });
+          }
+        }
+      }
+    }
+
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Sheet1');
-    var data  = sheet.getDataRange().getValues();
+    if (!sheet) return jsonResponse({ verified: false, reason: 'not_found' });
+    var data = sheet.getDataRange().getValues();
+    if (!data.length) return jsonResponse({ verified: false, reason: 'not_found' });
+    var headers = data[0];
+    var codeColumn = findCertificateColumn(
+      headers, ['code', 'access code', 'certificate code', 'certificate id'],
+      typeof COL !== 'undefined' && COL.CODE != null ? COL.CODE : 0
+    );
+    var statusColumn = findCertificateColumn(
+      headers, ['status', 'attendance status', 'check-in status'],
+      typeof COL !== 'undefined' && COL.STATUS != null ? COL.STATUS : 0
+    );
+    var nameColumn = findCertificateColumn(
+      headers, ['name', 'participant name', 'full name'],
+      typeof COL !== 'undefined' && COL.NAME != null ? COL.NAME : 1
+    );
+    var trackColumn = findCertificateColumn(
+      headers, ['track', 'event track'],
+      typeof COL !== 'undefined' && COL.TRACK != null ? COL.TRACK : 3
+    );
 
     for (var i = 1; i < data.length; i++) {
       var row     = data[i];
-      var rowCode = String(row[COL.CODE] || '').trim().toUpperCase();
+      var rowCode = String(row[codeColumn] || '').trim().toUpperCase();
 
       if (rowCode === code) {
-        var checkedIn = row[COL.STATUS] === 'CHECKED_IN';
+        var checkedIn = String(row[statusColumn] || '').trim().toUpperCase() === 'CHECKED_IN';
         if (!checkedIn) {
           /* Registered but didn't attend — certificate not valid */
           return jsonResponse({ verified: false, reason: 'not_attended' });
         }
         return jsonResponse({
           verified:  true,
-          name:      row[COL.NAME]  || '',
-          track:     row[COL.TRACK] || 'General',
+          name:      row[nameColumn]  || '',
+          track:     row[trackColumn] || 'General',
           event:     'DECRYPT 2.0',
           date:      'October 2026',
           code:      rowCode
@@ -237,11 +377,13 @@ function handleVerifyCertificate(e) {
 }
 
 // ---------------------------------------------------------------------------
-// ADD THESE ROUTES TO YOUR doGet IN Code.gs
+// ROUTING IN Code.gs
 //
 // In the public routes section (no token needed):
 //   if (action === 'verify_certificate') return handleVerifyCertificate(e);
 //
 // In ADMIN_ACTIONS in Admin.gs (token required):
 //   'sendCertificateEmail': function(e) { return handleSendCertificateEmail(e); },
+// The POST dispatcher must parse the JSON body to obtain its action before
+// calling the admin action, then pass the original event to this handler.
 // ---------------------------------------------------------------------------
