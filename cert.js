@@ -534,14 +534,70 @@ var Preview = (function () {
 /* ==========================================================
    STEP 4 — SEND PANEL
    ========================================================== */
+var DEFAULT_MESSAGE =
+  'Hi {{first_name}},\n\n' +
+  'Thank you for being part of DECRYPT 2.0. Your certificate is attached to this email as a PDF.\n\n' +
+  'You can check that it is genuine at any time with the button below or the QR code on the certificate.';
+
 var SendPanel = (function () {
   var _initialized = false;
+  var _selected = {};      // code -> true
+
+  function selectedList() {
+    return _recipients.filter(function (r) { return _selected[r.code]; });
+  }
+
+  function refreshSummary() {
+    var n = selectedList().length, total = _recipients.length;
+    var badge = el('recipient-count-badge');
+    badge.textContent = n + ' of ' + total + ' selected';
+    badge.classList.toggle('has-recipients', n > 0);
+    var label = el('send-btn-label');
+    label.textContent = n ? 'Send to ' + n + ' selected' : 'Select recipients';
+    el('send-btn').disabled = n === 0;
+    var rows = el('recipients-list').querySelectorAll('.recipient-row');
+    Array.prototype.forEach.call(rows, function (row) {
+      var on = !!_selected[row.getAttribute('data-code')];
+      row.classList.toggle('is-selected', on);
+      row.querySelector('input').checked = on;
+    });
+  }
+
+  function applyFilter() {
+    var q = el('pick-search').value.trim().toLowerCase();
+    var rows = el('recipients-list').querySelectorAll('.recipient-row');
+    var shown = 0;
+    Array.prototype.forEach.call(rows, function (row) {
+      var hit = !q || row.getAttribute('data-q').indexOf(q) !== -1;
+      row.classList.toggle('is-hidden', !hit);
+      if (hit) shown++;
+    });
+    var none = el('recipients-list').querySelector('.recipient-empty');
+    if (none) none.hidden = shown !== 0;
+  }
 
   function init() {
     if (!_initialized) {
       el('send-btn').addEventListener('click', confirmAndSend);
+      el('pick-search').addEventListener('input', applyFilter);
+      /* "Select all" applies to whatever the search currently shows */
+      el('pick-all').addEventListener('click', function () {
+        var rows = el('recipients-list').querySelectorAll('.recipient-row:not(.is-hidden)');
+        Array.prototype.forEach.call(rows, function (row) { _selected[row.getAttribute('data-code')] = true; });
+        refreshSummary();
+      });
+      el('pick-none').addEventListener('click', function () { _selected = {}; refreshSummary(); });
+      el('recipients-list').addEventListener('change', function (ev) {
+        var row = ev.target.closest && ev.target.closest('.recipient-row');
+        if (!row) return;
+        var code = row.getAttribute('data-code');
+        if (ev.target.checked) _selected[code] = true; else delete _selected[code];
+        refreshSummary();
+      });
       _initialized = true;
     }
+    var ta = el('cert-message');
+    if (!ta.value) ta.value = DEFAULT_MESSAGE;
     loadRecipients();
   }
 
@@ -549,6 +605,7 @@ var SendPanel = (function () {
     var listEl = el('recipients-list');
     var badge  = el('recipient-count-badge');
     listEl.innerHTML = '<div class="state-block"><div class="skel skel-line" style="width:60%"></div><div class="skel skel-line" style="width:40%"></div></div>';
+    el('pick-bar').hidden = true;
 
     apiFetch({ action: 'getCertificatesData' })
       .then(function (d) {
@@ -557,63 +614,81 @@ var SendPanel = (function () {
         }
         _recipients = (d.certificates || []).filter(function (c) { return c.status === 'Eligible'; });
 
-        badge.textContent = _recipients.length + ' recipient' + (_recipients.length !== 1 ? 's' : '');
-        badge.classList.toggle('has-recipients', _recipients.length > 0);
+        /* keep ticks that are still valid after a refresh (e.g. retrying failures) */
+        var still = {};
+        _recipients.forEach(function (r) { if (_selected[r.code]) still[r.code] = true; });
+        _selected = still;
 
         if (!_recipients.length) {
-          listEl.innerHTML = '<p style="padding:18px;color:var(--text-muted);font-size:0.85rem;">No eligible participants yet. Certificates appear here once participants have checked in.</p>';
+          badge.textContent = '0 eligible';
+          badge.classList.remove('has-recipients');
+          listEl.innerHTML = '<p class="recipient-empty">No eligible participants yet. Certificates appear here once participants have checked in.</p>';
+          el('send-btn-label').textContent = 'Select recipients';
           el('send-btn').disabled = true;
           return;
         }
 
         listEl.innerHTML = _recipients.map(function (r) {
-          return '<div class="recipient-row">' +
+          var q = (String(r.name || '') + ' ' + String(r.email || '') + ' ' + String(r.code || '')).toLowerCase();
+          return '<label class="recipient-row" data-code="' + esc(r.code) + '" data-q="' + esc(q) + '">' +
+            '<input type="checkbox" aria-label="Select ' + esc(r.name) + '">' +
             '<div><div class="recipient-name">' + esc(r.name) + '</div>' +
             '<div class="recipient-email">' + esc(r.email) + '</div></div>' +
             '<span class="recipient-code">' + esc(r.code) + '</span>' +
-            '</div>';
-        }).join('');
+            '</label>';
+        }).join('') + '<p class="recipient-empty" hidden>No one matches that search.</p>';
 
-        el('send-btn').disabled = false;
+        el('pick-bar').hidden = false;
+        el('pick-search').value = '';
+        refreshSummary();
       })
       .catch(function (error) {
-        _recipients = [];
-        badge.textContent = 'Could not load recipients';
+        _recipients = []; _selected = {};
+        badge.textContent = 'Could not load';
         badge.classList.remove('has-recipients');
         el('send-btn').disabled = true;
         listEl.textContent = 'Could not load recipients: ' +
           (error && error.message ? error.message : 'Unexpected error.');
+        listEl.className = 'chamber-body recipient-list recipient-empty';
       });
-
   }
 
   function confirmAndSend() {
-    if (!_recipients.length) return;
-    var count = _recipients.length;
+    var chosen = selectedList();
+    if (!chosen.length) return;
+    var count = chosen.length;
+    var left = _recipients.length - count;
     var confirmed = window.confirm(
-      'You are about to send certificates to ' + count + ' participant' + (count !== 1 ? 's' : '') + '.\n\nThis cannot be undone. Continue?'
+      'You are about to send certificates to ' + count + ' selected participant' + (count !== 1 ? 's' : '') + '.' +
+      (left ? '\n' + left + ' other eligible participant' + (left !== 1 ? 's' : '') + ' will not be sent anything yet.' : '') +
+      '\n\nThis cannot be undone. Continue?'
     );
     if (!confirmed) return;
-    startSend();
+    startSend(chosen);
   }
 
-  function startSend() {
+  function startSend(chosen) {
     el('send-btn').disabled = true;
     el('step4-back').style.display = 'none';
     el('send-progress').style.display = '';
     el('send-result').style.display = 'none';
+    el('pick-bar').hidden = true;
+    var rowsEl = el('recipients-list');
+    rowsEl.style.pointerEvents = 'none'; rowsEl.style.opacity = '.55';
 
-    var total   = _recipients.length;
+    var queue   = chosen.slice();          // snapshot: later ticks can't change an in-flight send
+    var total   = queue.length;
     var sent    = 0;
     var failures = [];
     var subject = el('cert-subject').value.trim() || 'Your DECRYPT 2.0 Certificate';
+    var message = el('cert-message').value.trim();
 
     function sendNext(i) {
       if (i >= total) {
         onComplete(sent, failures);
         return;
       }
-      var r = _recipients[i];
+      var r = queue[i];
       var pct = Math.round((i / total) * 100);
       el('progress-bar-fill').style.width = pct + '%';
       el('progress-label').textContent = 'Generating certificate ' + (i + 1) + ' of ' + total + ' — ' + r.name + '…';
@@ -628,6 +703,7 @@ var SendPanel = (function () {
             name:        r.name,
             email:       r.email,
             subject:     subject,
+            message:     message,
             pdfBase64:   pdfB64,
             certRow:     r.row
           });
@@ -637,12 +713,13 @@ var SendPanel = (function () {
             throw new Error(res && res.error ? res.error : 'The server rejected this certificate.');
           }
           sent++;
+          delete _selected[r.code];        // delivered: no longer selected
         })
         .catch(function (error) {
           failures.push({
             name: r.name || r.email || 'Unknown recipient',
             error: error && error.message ? error.message : 'Unexpected error.'
-          });
+          });                              // failed ones stay ticked for an easy retry
         })
         .then(function () {
           el('progress-bar-fill').style.width = Math.round(((i + 1) / total) * 100) + '%';
@@ -657,6 +734,7 @@ var SendPanel = (function () {
     el('progress-bar-fill').style.width = '100%';
     el('progress-label').textContent = 'Done.';
     el('step4-back').style.display = '';
+    el('recipients-list').style.pointerEvents = ''; el('recipients-list').style.opacity = '';
     setTimeout(function () {
       el('send-progress').style.display = 'none';
       var resultEl = el('send-result');
@@ -664,8 +742,8 @@ var SendPanel = (function () {
       resultEl.textContent = '';
       if (!failures.length) {
         resultEl.className = 'send-result ok';
-        resultEl.innerHTML = '<div class="send-result-title">All certificates sent ✓</div>' +
-          '<div class="send-result-sub">' + sent + ' certificate' + (sent !== 1 ? 's' : '') + ' delivered. The Certificates sheet has been updated.</div>';
+        resultEl.innerHTML = '<div class="send-result-title">Sent to ' + sent + ' participant' + (sent !== 1 ? 's' : '') + '</div>' +
+          '<div class="send-result-sub">The Certificates sheet has been updated. Anyone you left unticked is still eligible below.</div>';
       } else {
         resultEl.className = 'send-result err';
         var title = document.createElement('div');
@@ -673,7 +751,7 @@ var SendPanel = (function () {
         title.textContent = sent + ' sent, ' + failures.length + ' failed';
         var sub = document.createElement('div');
         sub.className = 'send-result-sub';
-        sub.textContent = 'Review the errors below. The recipient list will refresh so only certificates still marked Eligible can be retried.';
+        sub.textContent = 'The failed recipients stay ticked below so you can retry just them.';
         var list = document.createElement('ul');
         failures.forEach(function (failure) {
           var item = document.createElement('li');
@@ -696,3 +774,17 @@ var SendPanel = (function () {
    ========================================================== */
 TemplateUpload.init();
 Auth.init();
+
+/* ==========================================================
+   THEME
+   ========================================================== */
+(function () {
+  var btn = document.getElementById('theme-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    var next = cur === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('decrypt-theme', next); } catch (e) {}
+  });
+})();

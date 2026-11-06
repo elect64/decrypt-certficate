@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>DECRYPT — Certificate Engine</title>
 <meta name="theme-color" content="#07220C">
+<script>try{var t=localStorage.getItem("decrypt-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Cormorant+Garamond:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Cormorant+Garamond:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="cert.css">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2307220C'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-size='50' font-weight='700' fill='white' text-anchor='middle'%3ED%3C/text%3E%3C/svg%3E">
 </head>
@@ -17,21 +18,25 @@
      AUTH GATE
      ============================================================ -->
 <div class="auth-veil" id="auth-veil">
-  <div class="auth-box">
-    <div class="auth-brand">
-      <span class="auth-dot"></span>
-      <span class="auth-wordmark">DECRYPT</span>
+  <aside class="auth-side">
+    <div class="mark"><i>D.</i><span>DECRYPT</span></div>
+    <p class="auth-statement">Knowledge should not stay <em>locked.</em></p>
+    <p class="label">2.0 &middot; Certificate engine</p>
+  </aside>
+  <div class="auth-main">
+    <div class="auth-box">
+      <p class="label">Admin access</p>
+      <h2>Certificate engine</h2>
+      <div class="auth-field-wrap" id="auth-field-wrap">
+        <input type="password" id="auth-input" placeholder="Admin password"
+               autocomplete="current-password" autocapitalize="none" aria-label="Admin password">
+        <button class="btn btn-solid" id="auth-btn">
+          <span id="auth-btn-label">Unlock</span>
+          <span>&rarr;</span>
+        </button>
+      </div>
+      <p class="auth-error" id="auth-error" role="alert"></p>
     </div>
-    <p class="auth-sub label">Certificate Engine</p>
-    <div class="auth-field-wrap" id="auth-field-wrap">
-      <input type="password" id="auth-input" placeholder="Admin password"
-             autocomplete="current-password" autocapitalize="none">
-      <button class="btn btn-solid" id="auth-btn">
-        <span id="auth-btn-label">Unlock</span>
-        <span>→</span>
-      </button>
-    </div>
-    <p class="auth-error" id="auth-error" role="alert"></p>
   </div>
 </div>
 
@@ -43,20 +48,20 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="topbar-brand">
-        <span class="topbar-dot"></span>
+        <span class="topbar-mark">D.</span>
         <span class="topbar-name">DECRYPT</span>
-        <span class="topbar-tag label">Certificate Engine</span>
+        <span class="label">Certificates</span>
       </div>
       <div class="topbar-steps" id="topbar-steps">
         <span class="step-pill active" data-step="1">01 Template</span>
-        <span class="step-sep">›</span>
         <span class="step-pill" data-step="2">02 Position</span>
-        <span class="step-sep">›</span>
         <span class="step-pill" data-step="3">03 Preview</span>
-        <span class="step-sep">›</span>
         <span class="step-pill" data-step="4">04 Send</span>
       </div>
-      <button class="topbar-logout" id="topbar-logout">Sign out</button>
+      <div class="topbar-right">
+        <button class="theme-btn" id="theme-btn" type="button" aria-label="Toggle theme"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        <button class="topbar-logout" id="topbar-logout">Sign out</button>
+      </div>
     </div>
   </header>
 
@@ -66,6 +71,7 @@
     <section class="step active" id="step-1">
       <div class="step-inner">
         <div class="step-head">
+          <span class="label">Step 01 / 04</span>
           <h1>Upload your certificate template</h1>
           <p>Upload the blank PNG template you designed. The engine will overlay the participant's name and QR code on top of it.</p>
         </div>
@@ -99,6 +105,7 @@
     <section class="step" id="step-2">
       <div class="step-inner step-inner--wide">
         <div class="step-head">
+          <span class="label">Step 02 / 04</span>
           <h1>Position the fields</h1>
           <p>Drag the <strong>Name</strong> and <strong>QR code</strong> handles onto your template. Use the controls to style the name text.</p>
         </div>
@@ -213,6 +220,7 @@
     <section class="step" id="step-3">
       <div class="step-inner">
         <div class="step-head">
+          <span class="label">Step 03 / 04</span>
           <h1>Preview</h1>
           <p>This is how the certificate will look. The name shown is a sample — every participant will get their own.</p>
         </div>
@@ -233,17 +241,23 @@
     <section class="step" id="step-4">
       <div class="step-inner">
         <div class="step-head">
+          <span class="label">Step 04 / 04</span>
           <h1>Send certificates</h1>
-          <p>Review who will receive a certificate, then confirm the send. This cannot be undone.</p>
+          <p>Tick the people who should receive a certificate now. Anyone you leave unticked stays eligible for a later send. Sending cannot be undone.</p>
         </div>
 
-        <!-- Recipient preview -->
+        <!-- Recipient picker -->
         <div class="chamber" id="recipients-chamber">
           <div class="chamber-head">
-            <h3 class="label">Recipients — eligible but not yet sent</h3>
+            <h3 class="label">Recipients &mdash; eligible, not yet sent</h3>
             <div id="recipient-count-badge" class="count-badge"></div>
           </div>
-          <div class="chamber-body" id="recipients-list">
+          <div class="pick-bar" id="pick-bar" hidden>
+            <input type="search" id="pick-search" class="pick-search" placeholder="Search name, email or code" aria-label="Search recipients" autocomplete="off">
+            <button type="button" class="pick-link" id="pick-all">Select all</button>
+            <button type="button" class="pick-link" id="pick-none">Clear</button>
+          </div>
+          <div class="chamber-body recipient-list" id="recipients-list">
             <div class="state-block">
               <div class="skel skel-line" style="width:60%"></div>
               <div class="skel skel-line" style="width:40%"></div>
@@ -252,12 +266,25 @@
         </div>
 
         <!-- Email subject line -->
-        <div class="chamber" style="margin-top:18px;">
+        <div class="chamber">
           <div class="chamber-head"><h3 class="label">Email subject</h3></div>
           <div class="chamber-body pad">
-            <input type="text" id="cert-subject"
-                   value="Your DECRYPT 2.0 Certificate is here 🎓"
-                   style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:11px 14px;border-radius:8px;font-size:0.92rem;">
+            <input type="text" id="cert-subject" class="subject-input"
+                   value="Your DECRYPT 2.0 Certificate is here 🎓">
+          </div>
+        </div>
+
+        <!-- Email message -->
+        <div class="chamber">
+          <div class="chamber-head">
+            <h3 class="label">Email message</h3>
+            <span class="label" id="msg-count"></span>
+          </div>
+          <div class="chamber-body pad">
+            <textarea id="cert-message" class="subject-input msg-input" rows="8" aria-label="Email message"></textarea>
+            <p class="msg-hint">Write it as plain text. Blank lines start a new paragraph. You can use
+              <code>{{first_name}}</code>, <code>{{name}}</code> and <code>{{code}}</code>; each person's details are filled in.
+              It is sent inside the DECRYPT certificate design, with their name, certificate ID, PDF and verify button added for you.</p>
           </div>
         </div>
 
@@ -276,7 +303,7 @@
           <button class="btn btn-ghost btn-sm" id="step4-back">← Back to preview</button>
           <button class="btn btn-send" id="send-btn" disabled>
             <svg viewBox="0 0 24 24" width="16" height="16"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            Send certificates
+            <span id="send-btn-label">Send certificates</span>
           </button>
         </div>
       </div>
