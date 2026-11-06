@@ -58,6 +58,9 @@ input, select, textarea { font-family: inherit; }
 .topbar-inner { max-width: 1300px; margin: 0 auto; height: 100%; padding: 0 var(--edge); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .topbar-brand { display: flex; align-items: center; gap: 11px; }
 .topbar-mark { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); border: 1px solid rgba(255,255,255,.14); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: .86rem; letter-spacing: -.04em; }
+.topbar-brand-link { text-decoration: none; transition: transform var(--t-fast), filter var(--t-fast), border-color var(--t-fast); }
+.topbar-brand-link:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.topbar-brand-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .topbar-name { font-family: var(--font-display); font-weight: 700; font-size: .92rem; letter-spacing: .08em; }
 .topbar-steps { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .step-pill { font-family: var(--font-mono); font-size: .64rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border-right: 1px solid var(--line); transition: color var(--t-fast), background var(--t-fast); }
