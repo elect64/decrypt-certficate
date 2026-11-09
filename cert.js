@@ -4,8 +4,7 @@
 
 /* ---------- CONFIG ---------- */
 var API          = 'https://script.google.com/macros/s/AKfycbxhx5PmRQ3bJdKLyW0Bia-t5b0dNcy---geQJtGNrwOh6l8BylVdVotY9gAaQL8AzydLQ/exec';
-var API_TIMEOUT_MS = 90000;
-var QR_TIMEOUT_MS  = 15000;
+var API_TIMEOUT_MS = 150000;
 
 /* Verification page base URL — update once your portal is deployed */
 var VERIFY_BASE  = 'https://decrypt-certficate.vercel.app/verify.html';
@@ -458,48 +457,57 @@ function buildCertificateCanvas(participant) {
 
     /* QR code */
     var verifyUrl = VERIFY_BASE + '?code=' + encodeURIComponent(participant.code || '');
-    var qrUrl    = 'https://quickchart.io/qr?text=' +
-                   encodeURIComponent(verifyUrl) +
-                   '&size=300&margin=1&dark=07220C&light=FFFFFF';
-    var qrImg    = new Image();
-    var qrTimer  = setTimeout(function () {
-      finishQr(new Error('QR code service did not respond in time.'));
-    }, QR_TIMEOUT_MS);
-    var qrFinished = false;
-    function finishQr(error) {
-      if (qrFinished) return;
-      qrFinished = true;
-      clearTimeout(qrTimer);
-      qrImg.onload = null;
-      qrImg.onerror = null;
-      if (error) reject(error);
-      else resolve(cvs);
+    try {
+      var qrSize = Math.round(_style.qrSize * (cvs.width / 800));
+      var qrX    = _fields.qr.xPct * cvs.width  - qrSize / 2;
+      var qrY    = _fields.qr.yPct * cvs.height - qrSize / 2;
+      drawQr(ctx, verifyUrl, qrX, qrY, qrSize);
+      resolve(cvs);
+    } catch (error) {
+      reject(new Error('Could not add the QR code to the certificate.'));
     }
-    qrImg.crossOrigin = 'anonymous';
-    qrImg.onload = function () {
-      try {
-        var qrSize = Math.round(_style.qrSize * (cvs.width / 800));
-        var qrX    = _fields.qr.xPct * cvs.width  - qrSize / 2;
-        var qrY    = _fields.qr.yPct * cvs.height - qrSize / 2;
-        ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-        finishQr();
-      } catch (error) {
-        finishQr(new Error('Could not add the QR code to the certificate.'));
-      }
-    };
-    qrImg.onerror = function () {
-      finishQr(new Error('Could not generate the QR code. Check the connection and retry.'));
-    };
-    qrImg.src = qrUrl;
   });
+}
+
+/* White tile with a quiet zone and dark-green modules. */
+function drawQr(ctx, text, x, y, size) {
+  var qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  var n = qr.getModuleCount();
+  var quiet = 2;
+  var cell = size / (n + quiet * 2);
+  ctx.save();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#07220C';
+  for (var r = 0; r < n; r++) {
+    for (var c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) {
+        ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell + 0.5, cell + 0.5);
+      }
+    }
+  }
+  ctx.restore();
 }
 
 function canvasToPdfBase64(cvs) {
   var { jsPDF } = window.jspdf;
   /* A4 landscape in mm */
   var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  var imgData = cvs.toDataURL('image/png', 1.0);
-  doc.addImage(imgData, 'PNG', 0, 0, 297, 210);
+  /* A4 at ~200 dpi is 2339 px wide; JPEG substantially reduces PDF size. */
+  var maxWidth = 2339;
+  var scale = Math.min(1, maxWidth / cvs.width);
+  var flat = document.createElement('canvas');
+  flat.width = Math.round(cvs.width * scale);
+  flat.height = Math.round(cvs.height * scale);
+  var fctx = flat.getContext('2d');
+  fctx.fillStyle = '#FFFFFF';
+  fctx.fillRect(0, 0, flat.width, flat.height);
+  fctx.imageSmoothingQuality = 'high';
+  fctx.drawImage(cvs, 0, 0, flat.width, flat.height);
+  var imgData = flat.toDataURL('image/jpeg', 0.92);
+  doc.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
   return doc.output('datauristring').split(',')[1]; // base64 only
 }
 
